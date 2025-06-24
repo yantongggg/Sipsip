@@ -63,16 +63,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .from('profiles')
         .select('*')
         .eq('id', userId)
-        .single();
+        .limit(1);
 
-      if (error && error.code === 'PGRST116') {
-        // Profile doesn't exist, this is expected for new users
-        setProfile(null);
-      } else if (error) {
+      if (error) {
         console.error('Error fetching profile:', error);
         setProfile(null);
       } else {
-        setProfile(data);
+        // Handle array response from limit(1)
+        setProfile(data && data.length > 0 ? data[0] : null);
       }
     } catch (error) {
       console.error('Error fetching profile:', error);
@@ -90,12 +88,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
 
       if (error) {
-        return { error: error.message };
+        // Provide more user-friendly error messages
+        if (error.message.includes('Invalid login credentials')) {
+          return { error: 'Invalid username or password. Please check your credentials and try again.' };
+        } else if (error.message.includes('Email not confirmed')) {
+          return { error: 'Please confirm your email address before signing in.' };
+        } else if (error.message.includes('Too many requests')) {
+          return { error: 'Too many login attempts. Please wait a moment and try again.' };
+        } else {
+          return { error: error.message };
+        }
       }
 
       return {};
     } catch (error) {
-      return { error: 'An unexpected error occurred' };
+      console.error('Sign in error:', error);
+      return { error: 'An unexpected error occurred. Please try again.' };
     }
   };
 
@@ -106,10 +114,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .from('profiles')
         .select('username')
         .eq('username', username)
-        .single();
+        .limit(1);
 
-      if (existingProfile) {
-        return { error: 'Username is already taken' };
+      if (existingProfile && existingProfile.length > 0) {
+        return { error: 'Username is already taken. Please choose a different username.' };
       }
 
       const { data, error } = await supabase.auth.signUp({
@@ -118,7 +126,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
 
       if (error) {
-        return { error: error.message };
+        // Provide more user-friendly error messages
+        if (error.message.includes('User already registered')) {
+          return { error: 'An account with this username already exists. Please try signing in instead.' };
+        } else if (error.message.includes('Password should be at least')) {
+          return { error: 'Password must be at least 6 characters long.' };
+        } else if (error.message.includes('Signup requires a valid password')) {
+          return { error: 'Please enter a valid password.' };
+        } else {
+          return { error: error.message };
+        }
       }
 
       if (data.user) {
@@ -136,13 +153,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         if (profileError) {
           console.error('Error creating profile:', profileError);
-          return { error: 'Failed to create user profile' };
+          return { error: 'Account created but failed to set up profile. Please contact support.' };
         }
       }
 
       return {};
     } catch (error) {
-      return { error: 'An unexpected error occurred' };
+      console.error('Sign up error:', error);
+      return { error: 'An unexpected error occurred. Please try again.' };
     }
   };
 

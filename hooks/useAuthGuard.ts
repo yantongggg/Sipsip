@@ -1,18 +1,18 @@
-import { useRouter } from 'expo-router';
+// hooks/useAuthGuard.ts
 import { useAuth } from '@/contexts/AuthContext';
+import { useRouter } from 'expo-router';
 
 export function useAuthGuard() {
   const { user } = useAuth();
   const router = useRouter();
 
-  const requireAuth = (action: () => void) => {
+  const requireAuth = (callback: () => void) => {
     if (!user) {
       router.push('/auth');
-      return false;
+      return;
     }
-    action();
-    return true;
+    callback();
   };
 
-  return { requireAuth, isAuthenticated: !!user };
+  return { requireAuth };
 }

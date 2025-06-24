@@ -1,211 +1,213 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
   StyleSheet,
+  FlatList,
   SafeAreaView,
-  TouchableOpacity,
-  ScrollView,
-  Alert,
   TextInput,
+  TouchableOpacity,
   Modal,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { 
-  User, 
-  Award, 
-  Wine, 
-  Heart, 
-  Settings, 
-  LogOut, 
-  Key,
-  Check,
-  Calendar,
-  MapPin,
-  MessageCircle
-} from 'lucide-react-native';
-import { useAuth } from '@/contexts/AuthContext';
+import { Search, Filter, SlidersHorizontal } from 'lucide-react-native';
 import { useWine } from '@/contexts/WineContext';
-import { useRouter } from 'expo-router';
+import WineCard from '@/components/WineCard';
+import { Database } from '@/lib/supabase';
 
-export default function ProfileScreen() {
-  const { user, profile, signOut, updateProfile } = useAuth();
-  const { savedWines } = useWine();
-  const router = useRouter();
-  const [showPasswordModal, setShowPasswordModal] = useState(false);
-  const [oldPassword, setOldPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [passwordError, setPasswordError] = useState('');
+type Wine = Database['public']['Tables']['wines']['Row'];
 
-  const achievements = [
-    { 
-      id: 'first_save', 
-      title: 'First Taste', 
-      description: 'Saved your first wine',
-      icon: '🍷',
-      completed: savedWines.length > 0
-    },
-    { 
-      id: 'wine_explorer', 
-      title: 'Wine Explorer', 
-      description: 'Saved 10 different wines',
-      icon: '🗺️',
-      completed: savedWines.length >= 10
-    },
-    { 
-      id: 'connoisseur', 
-      title: 'Connoisseur', 
-      description: 'Saved wines from 5 different regions',
-      icon: '🎯',
-      completed: new Set(savedWines.map(w => w.wine.region)).size >= 5
-    },
-    { 
-      id: 'social_butterfly', 
-      title: 'Social Butterfly', 
-      description: 'Shared your first wine experience',
-      icon: '🦋',
-      completed: false // Would be based on community posts
-    },
-  ];
+const WINE_TYPES = ['all', 'red', 'white'];
+const SORT_OPTIONS = [
+  { label: 'Name A-Z', value: 'name_asc' },
+  { label: 'Name Z-A', value: 'name_desc' },
+  { label: 'Rating (High to Low)', value: 'rating_desc' },
+  { label: 'Rating (Low to High)', value: 'rating_asc' },
+  { label: 'Price (Low to High)', value: 'price_asc' },
+  { label: 'Price (High to Low)', value: 'price_desc' },
+  { label: 'Type', value: 'type' },
+];
 
-  const handleSignOut = () => {
-    Alert.alert(
-      'Sign Out',
-      'Are you sure you want to sign out?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Sign Out', 
-          style: 'destructive',
-          onPress: () => signOut()
-        },
-      ]
-    );
+export default function CollectionScreen() {
+  const { wines, loading } = useWine();
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedType, setSelectedType] = useState('all');
+  const [sortBy, setSortBy] = useState('name_asc');
+  const [showFilters, setShowFilters] = useState(false);
+
+  // Fixed sorting function with debug logs
+  const handleSortChange = (newSortValue: string) => {
+    console.log('=== SORTING DEBUG ===');
+    console.log('Previous sort:', sortBy);
+    console.log('New sort:', newSortValue);
+    console.log('Wines count before sort:', wines.length);
+    
+    // Close modal first
+    setShowFilters(false);
+    
+    // Update sort state
+    setSortBy(newSortValue);
+    
+    console.log('Sort state updated to:', newSortValue);
   };
 
-  const handleChangePassword = async () => {
-    setPasswordError('');
-
-    if (!oldPassword || !newPassword || !confirmPassword) {
-      setPasswordError('All fields are required');
-      return;
-    }
-
-    if (newPassword !== confirmPassword) {
-      setPasswordError('New passwords do not match');
-      return;
-    }
-
-    if (newPassword.length < 6) {
-      setPasswordError('Password must be at least 6 characters');
-      return;
-    }
-
-    // In a real app, you would verify the old password and update
-    // For now, we'll just show success
-    Alert.alert(
-      'Success',
-      'Password changed successfully',
-      [{ text: 'OK', onPress: () => {
-        setShowPasswordModal(false);
-        setOldPassword('');
-        setNewPassword('');
-        setConfirmPassword('');
-      }}]
-    );
+  const handleTypeChange = (newType: string) => {
+    console.log('=== TYPE FILTER DEBUG ===');
+    console.log('Previous type:', selectedType);
+    console.log('New type:', newType);
+    
+    setSelectedType(newType);
+    
+    console.log('Type filter updated to:', newType);
   };
 
-  const PasswordModal = () => (
-    <Modal visible={showPasswordModal} transparent animationType="slide">
-      <View style={styles.modalOverlay}>
-        <View style={styles.modalContent}>
-          <Text style={styles.modalTitle}>Change Password</Text>
-          
-          <TextInput
-            style={styles.passwordInput}
-            placeholder="Current Password"
-            secureTextEntry
-            value={oldPassword}
-            onChangeText={setOldPassword}
-          />
-          
-          <TextInput
-            style={styles.passwordInput}
-            placeholder="New Password"
-            secureTextEntry
-            value={newPassword}
-            onChangeText={setNewPassword}
-          />
-          
-          <TextInput
-            style={styles.passwordInput}
-            placeholder="Confirm New Password"
-            secureTextEntry
-            value={confirmPassword}
-            onChangeText={setConfirmPassword}
-          />
+  const filteredAndSortedWines = useMemo(() => {
+    console.log('=== FILTERING AND SORTING ===');
+    console.log('Total wines:', wines.length);
+    console.log('Search query:', searchQuery);
+    console.log('Selected type:', selectedType);
+    console.log('Sort by:', sortBy);
 
-          {passwordError ? (
-            <Text style={styles.errorText}>{passwordError}</Text>
-          ) : null}
+    let filtered = [...wines]; // Create a copy to avoid mutations
 
-          <View style={styles.modalButtons}>
-            <TouchableOpacity
-              style={[styles.modalButton, styles.cancelButton]}
-              onPress={() => {
-                setShowPasswordModal(false);
-                setPasswordError('');
-                setOldPassword('');
-                setNewPassword('');
-                setConfirmPassword('');
-              }}
-            >
-              <Text style={styles.cancelButtonText}>Cancel</Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity
-              style={[styles.modalButton, styles.saveButton]}
-              onPress={handleChangePassword}
-            >
-              <Text style={styles.saveButtonText}>Change Password</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
-    </Modal>
+    // Apply search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(wine =>
+        wine.name.toLowerCase().includes(query) ||
+        wine.winery?.toLowerCase().includes(query) ||
+        wine.region?.toLowerCase().includes(query) ||
+        wine.type.toLowerCase().includes(query) ||
+        wine.food_pairing?.toLowerCase().includes(query)
+      );
+      console.log('After search filter:', filtered.length);
+    }
+
+    // Apply type filter
+    if (selectedType !== 'all') {
+      filtered = filtered.filter(wine => wine.type === selectedType);
+      console.log('After type filter:', filtered.length);
+    }
+
+    // Apply sorting
+    const sorted = filtered.sort((a, b) => {
+      switch (sortBy) {
+        case 'name_asc':
+          return a.name.localeCompare(b.name);
+        case 'name_desc':
+          return b.name.localeCompare(a.name);
+        case 'rating_desc':
+          return (b.rating || 0) - (a.rating || 0);
+        case 'rating_asc':
+          return (a.rating || 0) - (b.rating || 0);
+        case 'price_desc':
+          return (b.price || 0) - (a.price || 0);
+        case 'price_asc':
+          return (a.price || 0) - (b.price || 0);
+        case 'type':
+          return a.type.localeCompare(b.type);
+        default:
+          return 0;
+      }
+    });
+
+    console.log('After sorting:', sorted.length);
+    console.log('First 3 wines after sort:', sorted.slice(0, 3).map(w => ({
+      name: w.name,
+      type: w.type,
+      year: w.year,
+      rating: w.rating,
+      price: w.price
+    })));
+
+    return sorted;
+  }, [wines, searchQuery, selectedType, sortBy]);
+
+  const renderWineCard = ({ item }: { item: Wine }) => (
+    <WineCard wine={item} />
   );
 
-  if (!user) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <LinearGradient
-          colors={['#722F37', '#8B4B47']}
-          style={styles.header}
+  const FilterModal = () => (
+    <Modal 
+      visible={showFilters} 
+      transparent 
+      animationType="slide"
+      onRequestClose={() => setShowFilters(false)}
+    >
+      <TouchableOpacity 
+        style={styles.modalOverlay}
+        activeOpacity={1}
+        onPress={() => {
+          console.log('Modal overlay pressed - closing');
+          setShowFilters(false);
+        }}
+      >
+        <TouchableOpacity 
+          style={styles.modalContent}
+          activeOpacity={1}
+          onPress={(e) => e.stopPropagation()}
         >
-          <Text style={styles.headerTitle}>Profile</Text>
-          <Text style={styles.headerSubtitle}>Your wine journey</Text>
-        </LinearGradient>
-        
-        <View style={styles.signInPrompt}>
-          <User size={64} color="#8B5A5F" />
-          <Text style={styles.signInTitle}>Join SipMate</Text>
-          <Text style={styles.signInMessage}>
-            Sign in to track your wine journey, save favorites, and connect with fellow wine enthusiasts
-          </Text>
-          <TouchableOpacity
-            style={styles.signInButton}
-            onPress={() => router.push('/auth')}
-          >
-            <Text style={styles.signInButtonText}>Sign In</Text>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
-    );
-  }
+          <Text style={styles.modalTitle}>Filter & Sort</Text>
+          
+          <Text style={styles.sectionTitle}>Wine Type</Text>
+          <View style={styles.typeContainer}>
+            {WINE_TYPES.map((type) => (
+              <TouchableOpacity
+                key={type}
+                style={[
+                  styles.typeButton,
+                  selectedType === type && styles.typeButtonActive
+                ]}
+                onPress={() => {
+                  console.log('Type button pressed:', type);
+                  handleTypeChange(type);
+                }}
+              >
+                <Text style={[
+                  styles.typeButtonText,
+                  selectedType === type && styles.typeButtonTextActive
+                ]}>
+                  {type.charAt(0).toUpperCase() + type.slice(1)}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
 
-  const completedAchievements = achievements.filter(a => a.completed).length;
-  const memberSince = profile?.created_at ? new Date(profile.created_at).toLocaleDateString() : 'Unknown';
+          <Text style={styles.sectionTitle}>Sort By</Text>
+          {SORT_OPTIONS.map((option) => (
+            <TouchableOpacity
+              key={option.value}
+              style={[
+                styles.sortOption,
+                sortBy === option.value && styles.sortOptionActive
+              ]}
+              onPress={() => {
+                console.log('Sort option pressed:', option.value, option.label);
+                handleSortChange(option.value);
+              }}
+            >
+              <Text style={[
+                styles.sortOptionText,
+                sortBy === option.value && styles.sortOptionTextActive
+              ]}>
+                {option.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+
+          <TouchableOpacity
+            style={styles.closeButton}
+            onPress={() => {
+              console.log('Apply Filters pressed - closing modal');
+              setShowFilters(false);
+            }}
+          >
+            <Text style={styles.closeButtonText}>Apply Filters</Text>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </TouchableOpacity>
+    </Modal>
+  );
 
   return (
     <SafeAreaView style={styles.container}>
@@ -213,101 +215,65 @@ export default function ProfileScreen() {
         colors={['#722F37', '#8B4B47']}
         style={styles.header}
       >
-        <Text style={styles.headerTitle}>Profile</Text>
-        <Text style={styles.headerSubtitle}>Your wine journey</Text>
+        <Text style={styles.headerTitle}>Wine Collection</Text>
+        <Text style={styles.headerSubtitle}>Discover exceptional wines</Text>
       </LinearGradient>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {/* User Info */}
-        <View style={styles.profileCard}>
-          <View style={styles.profileHeader}>
-            <View style={styles.avatarContainer}>
-              <Text style={styles.avatarText}>
-                {profile?.username.charAt(0).toUpperCase()}
-              </Text>
-            </View>
-            <View style={styles.profileInfo}>
-              <Text style={styles.username}>{profile?.username}</Text>
-              <Text style={styles.memberSince}>Member since {memberSince}</Text>
-            </View>
-          </View>
+      <View style={styles.searchContainer}>
+        <View style={styles.searchBar}>
+          <Search size={20} color="#8B5A5F" style={styles.searchIcon} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search wines, wineries, regions..."
+            placeholderTextColor="#8B5A5F"
+            value={searchQuery}
+            onChangeText={(text) => {
+              console.log('Search query changed:', text);
+              setSearchQuery(text);
+            }}
+          />
         </View>
+        <TouchableOpacity
+          style={styles.filterButton}
+          onPress={() => {
+            console.log('Filter button pressed - opening modal');
+            setShowFilters(true);
+          }}
+        >
+          <SlidersHorizontal size={20} color="#722F37" />
+        </TouchableOpacity>
+      </View>
 
-        {/* Stats */}
-        <View style={styles.statsContainer}>
-          <View style={styles.statCard}>
-            <Wine size={24} color="#722F37" />
-            <Text style={styles.statNumber}>{savedWines.length}</Text>
-            <Text style={styles.statLabel}>Wines Saved</Text>
-          </View>
-          
-          <View style={styles.statCard}>
-            <Award size={24} color="#D4AF37" />
-            <Text style={styles.statNumber}>{completedAchievements}</Text>
-            <Text style={styles.statLabel}>Achievements</Text>
-          </View>
-          
-          <View style={styles.statCard}>
-            <MapPin size={24} color="#8B5A5F" />
-            <Text style={styles.statNumber}>
-              {new Set(savedWines.map(w => w.wine.region)).size}
-            </Text>
-            <Text style={styles.statLabel}>Regions</Text>
-          </View>
-        </View>
+      <View style={styles.resultsHeader}>
+        <Text style={styles.resultsCount}>
+          {filteredAndSortedWines.length} wine{filteredAndSortedWines.length !== 1 ? 's' : ''}
+        </Text>
+        {selectedType !== 'all' && (
+          <Text style={styles.activeFilter}>
+            Filtered by: {selectedType}
+          </Text>
+        )}
+        <Text style={styles.sortIndicator}>
+          Sorted by: {SORT_OPTIONS.find(opt => opt.value === sortBy)?.label || sortBy}
+        </Text>
+      </View>
 
-        {/* Achievements */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Achievements</Text>
-          {achievements.map((achievement) => (
-            <View key={achievement.id} style={styles.achievementCard}>
-              <View style={styles.achievementIcon}>
-                <Text style={styles.achievementEmoji}>{achievement.icon}</Text>
-                {achievement.completed && (
-                  <View style={styles.completedBadge}>
-                    <Check size={12} color="white" />
-                  </View>
-                )}
-              </View>
-              
-              <View style={styles.achievementInfo}>
-                <Text style={[
-                  styles.achievementTitle,
-                  !achievement.completed && styles.achievementTitleIncomplete
-                ]}>
-                  {achievement.title}
-                </Text>
-                <Text style={styles.achievementDescription}>
-                  {achievement.description}
-                </Text>
-              </View>
-            </View>
-          ))}
-        </View>
+      <FlatList
+        data={filteredAndSortedWines}
+        renderItem={renderWineCard}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={styles.wineList}
+        showsVerticalScrollIndicator={false}
+        refreshing={loading}
+        onRefresh={() => {
+          console.log('Pull to refresh triggered');
+        }}
+        numColumns={2}
+        columnWrapperStyle={styles.row}
+        extraData={`${sortBy}-${selectedType}-${searchQuery}`} // Force re-render when these change
+      />
 
-        {/* Settings */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Settings</Text>
-          
-          <TouchableOpacity
-            style={styles.settingItem}
-            onPress={() => setShowPasswordModal(true)}
-          >
-            <Key size={20} color="#722F37" />
-            <Text style={styles.settingText}>Change Password</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity
-            style={styles.settingItem}
-            onPress={handleSignOut}
-          >
-            <LogOut size={20} color="#DC3545" />
-            <Text style={[styles.settingText, { color: '#DC3545' }]}>Sign Out</Text>
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
-
-      <PasswordModal />
+      <FilterModal />
     </SafeAreaView>
   );
 }
@@ -334,257 +300,148 @@ const styles = StyleSheet.create({
     color: '#F5F5DC',
     opacity: 0.9,
   },
-  content: {
-    flex: 1,
-    padding: 20,
-  },
-  signInPrompt: {
-    flex: 1,
-    justifyContent: 'center',
+  searchContainer: {
+    flexDirection: 'row',
+    paddingHorizontal: 20,
+    paddingVertical: 15,
     alignItems: 'center',
-    paddingHorizontal: 40,
   },
-  signInTitle: {
-    fontFamily: 'PlayfairDisplay-Bold',
-    fontSize: 24,
-    color: '#722F37',
-    marginTop: 20,
-    marginBottom: 10,
-    textAlign: 'center',
-  },
-  signInMessage: {
-    fontFamily: 'PlayfairDisplay-Regular',
-    fontSize: 16,
-    color: '#8B5A5F',
-    textAlign: 'center',
-    lineHeight: 24,
-    marginBottom: 30,
-  },
-  signInButton: {
-    backgroundColor: '#722F37',
-    paddingHorizontal: 32,
+  searchBar: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'white',
+    borderRadius: 12,
+    paddingHorizontal: 15,
     paddingVertical: 12,
-    borderRadius: 25,
-  },
-  signInButtonText: {
-    fontFamily: 'PlayfairDisplay-Bold',
-    fontSize: 16,
-    color: 'white',
-  },
-  profileCard: {
-    backgroundColor: 'white',
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 20,
+    marginRight: 10,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
   },
-  profileHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  searchIcon: {
+    marginRight: 10,
   },
-  avatarContainer: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: '#722F37',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 16,
-  },
-  avatarText: {
-    fontFamily: 'PlayfairDisplay-Bold',
-    fontSize: 24,
-    color: 'white',
-  },
-  profileInfo: {
+  searchInput: {
     flex: 1,
+    fontFamily: 'PlayfairDisplay-Regular',
+    fontSize: 16,
+    color: '#333',
   },
-  username: {
-    fontFamily: 'PlayfairDisplay-Bold',
-    fontSize: 22,
-    color: '#722F37',
-    marginBottom: 4,
+  filterButton: {
+    backgroundColor: 'white',
+    padding: 12,
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
-  memberSince: {
+  resultsHeader: {
+    paddingHorizontal: 20,
+    paddingBottom: 10,
+  },
+  resultsCount: {
     fontFamily: 'PlayfairDisplay-Regular',
     fontSize: 14,
     color: '#8B5A5F',
   },
-  statsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 30,
-  },
-  statCard: {
-    flex: 1,
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 16,
-    marginHorizontal: 4,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  statNumber: {
-    fontFamily: 'PlayfairDisplay-Bold',
-    fontSize: 24,
-    color: '#722F37',
-    marginVertical: 8,
-  },
-  statLabel: {
-    fontFamily: 'PlayfairDisplay-Regular',
+  activeFilter: {
+    fontFamily: 'PlayfairDisplay-Italic',
     fontSize: 12,
-    color: '#8B5A5F',
-    textAlign: 'center',
-  },
-  section: {
-    marginBottom: 30,
-  },
-  sectionTitle: {
-    fontFamily: 'PlayfairDisplay-Bold',
-    fontSize: 20,
     color: '#722F37',
-    marginBottom: 16,
+    marginTop: 2,
   },
-  achievementCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+  sortIndicator: {
+    fontFamily: 'PlayfairDisplay-Italic',
+    fontSize: 12,
+    color: '#D4AF37',
+    marginTop: 2,
   },
-  achievementIcon: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: '#F8F9FA',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 16,
-    position: 'relative',
+  wineList: {
+    paddingHorizontal: 10,
+    paddingBottom: 20,
   },
-  achievementEmoji: {
-    fontSize: 20,
-  },
-  completedBadge: {
-    position: 'absolute',
-    top: -2,
-    right: -2,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: '#28A745',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  achievementInfo: {
-    flex: 1,
-  },
-  achievementTitle: {
-    fontFamily: 'PlayfairDisplay-Bold',
-    fontSize: 16,
-    color: '#722F37',
-    marginBottom: 4,
-  },
-  achievementTitleIncomplete: {
-    color: '#8B5A5F',
-  },
-  achievementDescription: {
-    fontFamily: 'PlayfairDisplay-Regular',
-    fontSize: 14,
-    color: '#8B5A5F',
-  },
-  settingItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  settingText: {
-    fontFamily: 'PlayfairDisplay-Regular',
-    fontSize: 16,
-    color: '#722F37',
-    marginLeft: 16,
+  row: {
+    justifyContent: 'space-between',
+    paddingHorizontal: 10,
   },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: 'flex-end',
   },
   modalContent: {
     backgroundColor: 'white',
-    borderRadius: 16,
-    padding: 24,
-    width: '90%',
-    maxWidth: 400,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+    maxHeight: '80%',
   },
   modalTitle: {
     fontFamily: 'PlayfairDisplay-Bold',
-    fontSize: 20,
+    fontSize: 24,
     color: '#722F37',
     marginBottom: 20,
     textAlign: 'center',
   },
-  passwordInput: {
-    borderWidth: 1,
-    borderColor: '#E5E5E5',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 16,
-    fontFamily: 'PlayfairDisplay-Regular',
-    fontSize: 16,
+  sectionTitle: {
+    fontFamily: 'PlayfairDisplay-Bold',
+    fontSize: 18,
+    color: '#722F37',
+    marginTop: 20,
+    marginBottom: 10,
   },
-  errorText: {
+  typeContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  typeButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#D4AF37',
+  },
+  typeButtonActive: {
+    backgroundColor: '#D4AF37',
+  },
+  typeButtonText: {
     fontFamily: 'PlayfairDisplay-Regular',
     fontSize: 14,
-    color: '#DC3545',
-    marginBottom: 16,
-    textAlign: 'center',
+    color: '#722F37',
   },
-  modalButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  typeButtonTextActive: {
+    color: 'white',
   },
-  modalButton: {
-    flex: 1,
+  sortOption: {
     paddingVertical: 12,
+    paddingHorizontal: 16,
     borderRadius: 8,
-    marginHorizontal: 8,
+    marginBottom: 8,
   },
-  cancelButton: {
-    backgroundColor: '#F8F9FA',
-  },
-  saveButton: {
+  sortOptionActive: {
     backgroundColor: '#722F37',
   },
-  cancelButtonText: {
+  sortOptionText: {
     fontFamily: 'PlayfairDisplay-Regular',
     fontSize: 16,
     color: '#722F37',
-    textAlign: 'center',
   },
-  saveButtonText: {
+  sortOptionTextActive: {
+    color: 'white',
+  },
+  closeButton: {
+    backgroundColor: '#722F37',
+    paddingVertical: 15,
+    borderRadius: 12,
+    marginTop: 20,
+  },
+  closeButtonText: {
     fontFamily: 'PlayfairDisplay-Bold',
     fontSize: 16,
     color: 'white',

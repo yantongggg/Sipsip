@@ -5,30 +5,32 @@ import {
   StyleSheet,
   SafeAreaView,
   ScrollView,
-  Image,
   TouchableOpacity,
   Alert,
-  Linking,
+  Image,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { 
-  ArrowLeft, 
-  Heart, 
-  MapPin, 
-  Calendar, 
-  Wine, 
-  Star,
-  Plus,
-  DollarSign,
-  Utensils,
-  ExternalLink,
-  Building
-} from 'lucide-react-native';
+import { ArrowLeft } from 'lucide-react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useWine } from '@/contexts/WineContext';
-import { useAuth } from '@/contexts/AuthContext';
-import { supabase, getWineImageUrl } from '@/lib/supabase';
-import SaveWineModal from '@/components/SaveWineModal';
+import { supabase } from '@/lib/supabase';
+
+// Fixed image URL function based on your storage structure
+const getWineImageUrl = (imageName: string | null, wineType?: string): string | null => {
+  if (!imageName) return null;
+  
+  // If the imageName already includes the folder path, use it directly
+  if (imageName.includes('/')) {
+    const baseUrl = 'https://gcvtaawcowvtytbsnftq.supabase.co/storage/v1/object/public';
+    return `${baseUrl}/wine-images/${imageName}`;
+  }
+  
+  // Otherwise, determine folder based on wine type
+  const folder = (wineType === 'white') ? 'whitewine_png' : 'redwine_png';
+  const baseUrl = 'https://gcvtaawcowvtytbsnftq.supabase.co/storage/v1/object/public';
+  const imageUrl = `${baseUrl}/wine-images/${folder}/${imageName}`;
+  
+  console.log(`Image URL for ${imageName} (${wineType}):`, imageUrl);
+  return imageUrl;
+};
 
 interface WineDetails {
   id: string;
@@ -36,7 +38,7 @@ interface WineDetails {
   winery: string | null;
   type: string;
   region: string | null;
-  year: number | null;
+  year: number | null; // Fixed: use 'year' not 'vintage'
   price: number | null;
   rating: number | null;
   food_pairing: string | null;
@@ -44,107 +46,105 @@ interface WineDetails {
   description: string | null;
   wine_image_name: string | null;
   url: string | null;
-  created_at: string;
+  [key: string]: any; // Allow other properties
 }
 
 export default function WineDetailsScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { user } = useAuth();
-  const { isWineSaved, savedWines } = useWine();
   const [wine, setWine] = useState<WineDetails | null>(null);
   const [loading, setLoading] = useState(true);
-  const [showSaveModal, setShowSaveModal] = useState(false);
-
-  const isSaved = wine ? isWineSaved(wine.id) : false;
-  const savedWineData = savedWines.find(sw => sw.wine_id === wine?.id);
 
   useEffect(() => {
+    console.log('=== COMPONENT MOUNTED ===');
+    console.log('Wine Details mounted with ID:', id);
+    console.log('ID is defined:', !!id);
+    console.log('ID value:', id);
+    
     if (id) {
       fetchWineDetails();
+    } else {
+      console.log('=== NO ID PROVIDED ===');
+      setLoading(false);
+      Alert.alert('Error', 'No wine ID provided');
     }
   }, [id]);
 
   const fetchWineDetails = async () => {
+    console.log('=== STARTING FETCH ===');
+    console.log('Fetching wine details for ID:', id);
+    console.log('ID type:', typeof id);
+    
     try {
+      console.log('Making Supabase request...');
+      
       const { data, error } = await supabase
         .from('wines')
         .select('*')
         .eq('id', id)
         .single();
 
+      console.log('=== SUPABASE RESPONSE ===');
+      console.log('Data:', data);
+      console.log('Error:', error);
+      console.log('Available columns:', data ? Object.keys(data) : 'No data');
+
       if (error) {
-        console.error('Error fetching wine details:', error);
-        Alert.alert('Error', 'Failed to load wine details');
-        router.back();
+        console.error('=== ERROR DETAILS ===');
+        console.error('Error code:', error.code);
+        console.error('Error message:', error.message);
+        console.error('Error details:', error.details);
+        
+        Alert.alert('Error', `Failed to load wine details: ${error.message}`);
+        setLoading(false);
         return;
       }
 
+      if (!data) {
+        console.log('=== NO DATA RECEIVED ===');
+        Alert.alert('Error', 'No wine found with this ID');
+        setLoading(false);
+        return;
+      }
+
+      console.log('=== SUCCESS ===');
+      console.log('Setting wine data:', data);
       setWine(data);
+      
     } catch (error) {
-      console.error('Error fetching wine details:', error);
+      console.error('=== CATCH ERROR ===');
+      console.error('Catch error:', error);
       Alert.alert('Error', 'Failed to load wine details');
-      router.back();
     } finally {
+      console.log('=== SETTING LOADING FALSE ===');
       setLoading(false);
     }
   };
 
-  const handleSave = () => {
-    if (!user) {
-      router.push('/auth');
-      return;
-    }
-    setShowSaveModal(true);
-  };
-
-  const handleOpenUrl = async () => {
-    if (wine?.url) {
-      try {
-        await Linking.openURL(wine.url);
-      } catch (error) {
-        Alert.alert('Error', 'Could not open URL');
-      }
-    }
-  };
-
-  const getTypeColor = (type: string) => {
-    switch (type) {
-      case 'red': return '#722F37';
-      case 'white': return '#F5F5DC';
-      case 'rosé': return '#FFC0CB';
-      case 'sparkling': return '#E6E6FA';
-      case 'dessert': return '#D4AF37';
-      default: return '#722F37';
-    }
-  };
-
-  const renderStars = (rating: number | null) => {
-    if (typeof rating !== 'number' || isNaN(rating)) return null;
-
-    return (
-      <View style={styles.starsContainer}>
-        {[1, 2, 3, 4, 5].map((star) => (
-          <Star
-            key={star}
-            size={16}
-            color="#D4AF37"
-            fill={star <= rating ? '#D4AF37' : 'none'}
-          />
-        ))}
-        <Text style={styles.ratingText}>
-          ({rating.toFixed(1)}/5)
-        </Text>
-      </View>
-    );
-  };
-
+  console.log('=== RENDER STATE ===');
+  console.log('Loading:', loading);
+  console.log('Wine:', wine ? 'Data exists' : 'No data');
+  console.log('Wine ID:', wine?.id);
+  console.log('Wine name:', wine?.name);
 
   if (loading) {
+    console.log('=== SHOWING LOADING SCREEN ===');
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
           <Text style={styles.loadingText}>Loading wine details...</Text>
+          <Text style={styles.debugText}>ID: {id}</Text>
+          <TouchableOpacity
+            style={styles.debugButton}
+            onPress={() => {
+              console.log('=== MANUAL RETRY ===');
+              if (id) {
+                fetchWineDetails();
+              }
+            }}
+          >
+            <Text style={styles.debugButtonText}>Retry</Text>
+          </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
@@ -166,212 +166,113 @@ export default function WineDetailsScreen() {
     );
   }
 
-  const wineImageUrl = getWineImageUrl(wine.wine_image_name);
+  const wineImageUrl = getWineImageUrl(wine.wine_image_name, wine.type);
   const fallbackImage = 'https://images.pexels.com/photos/434311/pexels-photo-434311.jpeg';
 
   return (
     <SafeAreaView style={styles.container}>
+      <View style={styles.header}>
+        <TouchableOpacity
+          style={styles.backIconButton}
+          onPress={() => router.back()}
+        >
+          <ArrowLeft size={24} color="#722F37" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Wine Details</Text>
+      </View>
+
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {/* Header Image */}
-        <View style={styles.imageContainer}>
-          <Image
-            source={{ uri: wineImageUrl || fallbackImage }}
-            style={styles.wineImage}
-            resizeMode="cover"
-          />
-          
-          <LinearGradient
-            colors={['transparent', 'rgba(0,0,0,0.7)']}
-            style={styles.imageGradient}
-          />
-
-          <TouchableOpacity
-            style={styles.backIconButton}
-            onPress={() => router.back()}
-          >
-            <ArrowLeft size={24} color="white" />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.saveIconButton}
-            onPress={handleSave}
-          >
-            <Heart
-              size={24}
-              color={isSaved ? '#D4AF37' : 'white'}
-              fill={isSaved ? '#D4AF37' : 'none'}
+        {/* Wine Image */}
+        {wine.wine_image_name && (
+          <View style={styles.imageContainer}>
+            <Image
+              source={{ uri: wineImageUrl || fallbackImage }}
+              style={styles.wineImage}
+              resizeMode="cover"
+              onError={(error) => {
+                console.log('Image failed to load:', wineImageUrl, error.nativeEvent.error);
+              }}
+              onLoad={() => {
+                console.log('Image loaded successfully:', wineImageUrl);
+              }}
             />
-          </TouchableOpacity>
-        </View>
-
-        {/* Wine Details */}
-        <View style={styles.detailsContainer}>
-          <View
-            style={[
-              styles.typeTag,
-              { backgroundColor: getTypeColor(wine.type) }
-            ]}
-          >
-            <Text style={[
-              styles.typeText,
-              { color: wine.type === 'white' ? '#722F37' : 'white' }
-            ]}>
-              {wine.type}
-            </Text>
           </View>
+        )}
 
-          <Text style={styles.wineName}>{wine.name}</Text>
+        <View style={styles.detailsContainer}>
+          <Text style={styles.wineName}>
+            {wine.name || 'Unknown Wine'}
+          </Text>
+
+          {wine.type && (
+            <Text style={styles.wineDetail}>
+              Type: {wine.type}
+            </Text>
+          )}
 
           {wine.winery && (
-            <View style={styles.wineryRow}>
-              <Building size={16} color="#8B5A5F" />
-              <Text style={styles.wineryText}>{wine.winery}</Text>
-            </View>
+            <Text style={styles.wineDetail}>
+              Winery: {wine.winery}
+            </Text>
           )}
 
-          <View style={styles.wineMetadata}>
-            {wine.region && (
-              <View style={styles.metadataRow}>
-                <MapPin size={16} color="#8B5A5F" />
-                <Text style={styles.metadataText}>{wine.region}</Text>
-              </View>
-            )}
-            
-            {wine.year && (
-              <View style={styles.metadataRow}>
-                <Calendar size={16} color="#8B5A5F" />
-                <Text style={styles.metadataText}>{wine.year}</Text>
-              </View>
-            )}
-            
-            {wine.alcohol_percentage && (
-              <View style={styles.metadataRow}>
-                <Wine size={16} color="#8B5A5F" />
-                <Text style={styles.metadataText}>{wine.alcohol_percentage}% ABV</Text>
-              </View>
-            )}
+          {wine.region && (
+            <Text style={styles.wineDetail}>
+              Region: {wine.region}
+            </Text>
+          )}
 
-            {wine.price && (
-              <View style={styles.metadataRow}>
-                <DollarSign size={16} color="#8B5A5F" />
-                <Text style={styles.metadataText}>${wine.price}</Text>
-              </View>
-            )}
-          </View>
+          {wine.year && (
+            <Text style={styles.wineDetail}>
+              Year: {String(wine.year)}
+            </Text>
+          )}
+
+          {wine.alcohol_percentage && (
+            <Text style={styles.wineDetail}>
+              Alcohol: {String(wine.alcohol_percentage)}% ABV
+            </Text>
+          )}
+
+          {wine.price && (
+            <Text style={styles.wineDetail}>
+              Price: ${String(wine.price)}
+            </Text>
+          )}
 
           {wine.rating && (
-            <View style={styles.ratingContainer}>
-              <Text style={styles.ratingLabel}>Overall Rating:</Text>
-              {renderStars(wine.rating)}
-            </View>
+            <Text style={styles.wineDetail}>
+              Rating: {String(wine.rating)}/5
+            </Text>
           )}
 
-          {/* Food Pairing */}
           {wine.food_pairing && (
             <View style={styles.sectionContainer}>
-              <View style={styles.sectionHeader}>
-                <Utensils size={20} color="#722F37" />
-                <Text style={styles.sectionTitle}>Food Pairing</Text>
-              </View>
+              <Text style={styles.sectionTitle}>Food Pairing</Text>
               <Text style={styles.sectionText}>{wine.food_pairing}</Text>
             </View>
           )}
 
-          {/* Saved Wine Info */}
-          {isSaved && savedWineData && (
-            <View style={styles.savedInfoContainer}>
-              <Text style={styles.savedInfoTitle}>Your Notes</Text>
-              
-              {savedWineData.rating && (
-                <View style={styles.savedInfoRow}>
-                  <Text style={styles.savedInfoLabel}>Your Rating:</Text>
-                  <View style={styles.userStarsContainer}>
-                    {[1, 2, 3, 4, 5].map((star) => (
-                      <Star
-                        key={star}
-                        size={14}
-                        color="#D4AF37"
-                        fill={star <= savedWineData.rating! ? '#D4AF37' : 'none'}
-                      />
-                    ))}
-                  </View>
-                </View>
-              )}
-              
-              {savedWineData.date_tried && (
-                <View style={styles.savedInfoRow}>
-                  <Text style={styles.savedInfoLabel}>Date Tried:</Text>
-                  <Text style={styles.savedInfoValue}>
-                    {new Date(savedWineData.date_tried).toLocaleDateString()}
-                  </Text>
-                </View>
-              )}
-              
-              {savedWineData.location && (
-                <View style={styles.savedInfoRow}>
-                  <Text style={styles.savedInfoLabel}>Location:</Text>
-                  <Text style={styles.savedInfoValue}>{savedWineData.location}</Text>
-                </View>
-              )}
-              
-              {savedWineData.user_notes && (
-                <View style={styles.savedInfoRow}>
-                  <Text style={styles.savedInfoLabel}>Your Notes:</Text>
-                  <Text style={styles.savedInfoDescription}>
-                    {savedWineData.user_notes}
-                  </Text>
-                </View>
-              )}
-            </View>
-          )}
-
-          {/* Description */}
           {wine.description && (
-            <View style={styles.descriptionContainer}>
-              <Text style={styles.descriptionTitle}>About This Wine</Text>
-              <Text style={styles.descriptionText}>{wine.description}</Text>
+            <View style={styles.sectionContainer}>
+              <Text style={styles.sectionTitle}>About This Wine</Text>
+              <Text style={styles.sectionText}>{wine.description}</Text>
             </View>
           )}
 
-          {/* External URL */}
           {wine.url && (
-            <TouchableOpacity style={styles.urlButton} onPress={handleOpenUrl}>
-              <ExternalLink size={20} color="#722F37" />
+            <TouchableOpacity 
+              style={styles.urlButton}
+              onPress={() => {
+                // You can add Linking.openURL(wine.url) here if needed
+                console.log('URL clicked:', wine.url);
+              }}
+            >
               <Text style={styles.urlButtonText}>View More Details</Text>
             </TouchableOpacity>
           )}
-
-          {/* Action Button */}
-          <TouchableOpacity
-            style={[
-              styles.actionButton,
-              isSaved ? styles.updateButton : styles.saveButton
-            ]}
-            onPress={handleSave}
-          >
-            {isSaved ? (
-              <>
-                <Star size={20} color="white" />
-                <Text style={styles.actionButtonText}>Update Notes</Text>
-              </>
-            ) : (
-              <>
-                <Plus size={20} color="white" />
-                <Text style={styles.actionButtonText}>Save to Library</Text>
-              </>
-            )}
-          </TouchableOpacity>
         </View>
       </ScrollView>
-
-      {wine && (
-        <SaveWineModal
-          visible={showSaveModal}
-          wine={wine}
-          existingData={savedWineData}
-          onClose={() => setShowSaveModal(false)}
-        />
-      )}
     </SafeAreaView>
   );
 }
@@ -380,6 +281,21 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F5F5DC',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 20,
+    paddingTop: 50,
+  },
+  backIconButton: {
+    padding: 8,
+    marginRight: 16,
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#722F37',
   },
   content: {
     flex: 1,
@@ -390,9 +306,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   loadingText: {
-    fontFamily: 'PlayfairDisplay-Regular',
     fontSize: 16,
     color: '#8B5A5F',
+    marginBottom: 10,
+  },
+  debugText: {
+    fontSize: 12,
+    color: '#999',
+    marginBottom: 10,
+  },
+  debugButton: {
+    backgroundColor: '#722F37',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  debugButtonText: {
+    color: 'white',
+    fontSize: 14,
   },
   errorContainer: {
     flex: 1,
@@ -401,7 +332,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 40,
   },
   errorText: {
-    fontFamily: 'PlayfairDisplay-Bold',
     fontSize: 20,
     color: '#722F37',
     marginBottom: 20,
@@ -413,232 +343,61 @@ const styles = StyleSheet.create({
     borderRadius: 20,
   },
   backButtonText: {
-    fontFamily: 'PlayfairDisplay-Bold',
     fontSize: 16,
     color: 'white',
   },
   imageContainer: {
-    position: 'relative',
-    height: 400,
+    height: 300,
+    backgroundColor: '#f0f0f0',
+    marginHorizontal: 20,
+    marginBottom: 20,
+    borderRadius: 12,
+    overflow: 'hidden',
   },
   wineImage: {
     width: '100%',
     height: '100%',
   },
-  imageGradient: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 100,
-  },
-  backIconButton: {
-    position: 'absolute',
-    top: 50,
-    left: 20,
-    backgroundColor: 'rgba(0,0,0,0.3)',
-    borderRadius: 20,
-    padding: 8,
-  },
-  saveIconButton: {
-    position: 'absolute',
-    top: 50,
-    right: 20,
-    backgroundColor: 'rgba(0,0,0,0.3)',
-    borderRadius: 20,
-    padding: 8,
-  },
   detailsContainer: {
     padding: 20,
-    backgroundColor: '#F5F5DC',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    marginTop: -20,
-  },
-  typeTag: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    marginBottom: 12,
-  },
-  typeText: {
-    fontFamily: 'PlayfairDisplay-Bold',
-    fontSize: 12,
-    textTransform: 'capitalize',
   },
   wineName: {
-    fontFamily: 'PlayfairDisplay-Bold',
-    fontSize: 28,
+    fontSize: 24,
+    fontWeight: 'bold',
     color: '#722F37',
-    marginBottom: 8,
-    lineHeight: 36,
-  },
-  wineryRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
     marginBottom: 16,
   },
-  wineryText: {
-    fontFamily: 'PlayfairDisplay-Italic',
-    fontSize: 18,
+  wineDetail: {
+    fontSize: 16,
     color: '#8B5A5F',
-    marginLeft: 8,
-  },
-  wineMetadata: {
-    marginBottom: 16,
-  },
-  metadataRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
     marginBottom: 8,
-  },
-  metadataText: {
-    fontFamily: 'PlayfairDisplay-Regular',
-    fontSize: 16,
-    color: '#8B5A5F',
-    marginLeft: 8,
-  },
-  ratingContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  ratingLabel: {
-    fontFamily: 'PlayfairDisplay-Bold',
-    fontSize: 16,
-    color: '#722F37',
-    marginRight: 8,
-  },
-  starsContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  ratingText: {
-    fontFamily: 'PlayfairDisplay-Regular',
-    fontSize: 14,
-    color: '#8B5A5F',
-    marginLeft: 8,
   },
   sectionContainer: {
-    marginBottom: 20,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
+    marginTop: 16,
+    marginBottom: 16,
   },
   sectionTitle: {
-    fontFamily: 'PlayfairDisplay-Bold',
     fontSize: 18,
+    fontWeight: 'bold',
     color: '#722F37',
-    marginLeft: 8,
-  },
-  sectionText: {
-    fontFamily: 'PlayfairDisplay-Regular',
-    fontSize: 16,
-    color: '#666',
-    lineHeight: 24,
-  },
-  savedInfoContainer: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  savedInfoTitle: {
-    fontFamily: 'PlayfairDisplay-Bold',
-    fontSize: 18,
-    color: '#722F37',
-    marginBottom: 12,
-  },
-  savedInfoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
     marginBottom: 8,
   },
-  savedInfoLabel: {
-    fontFamily: 'PlayfairDisplay-Bold',
-    fontSize: 14,
-    color: '#722F37',
-    marginRight: 8,
-    minWidth: 80,
-  },
-  savedInfoValue: {
-    fontFamily: 'PlayfairDisplay-Regular',
-    fontSize: 14,
-    color: '#8B5A5F',
-    flex: 1,
-  },
-  savedInfoDescription: {
-    fontFamily: 'PlayfairDisplay-Italic',
-    fontSize: 14,
-    color: '#666',
-    flex: 1,
-    lineHeight: 20,
-  },
-  userStarsContainer: {
-    flexDirection: 'row',
-  },
-  descriptionContainer: {
-    marginBottom: 20,
-  },
-  descriptionTitle: {
-    fontFamily: 'PlayfairDisplay-Bold',
-    fontSize: 20,
-    color: '#722F37',
-    marginBottom: 12,
-  },
-  descriptionText: {
-    fontFamily: 'PlayfairDisplay-Regular',
+  sectionText: {
     fontSize: 16,
     color: '#666',
     lineHeight: 24,
   },
   urlButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'white',
+    backgroundColor: '#722F37',
     paddingVertical: 12,
+    paddingHorizontal: 20,
     borderRadius: 8,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: '#722F37',
+    marginTop: 16,
+    alignItems: 'center',
   },
   urlButtonText: {
-    fontFamily: 'PlayfairDisplay-Bold',
     fontSize: 16,
-    color: '#722F37',
-    marginLeft: 8,
-  },
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 16,
-    borderRadius: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  saveButton: {
-    backgroundColor: '#722F37',
-  },
-  updateButton: {
-    backgroundColor: '#D4AF37',
-  },
-  actionButtonText: {
-    fontFamily: 'PlayfairDisplay-Bold',
-    fontSize: 18,
     color: 'white',
-    marginLeft: 8,
+    fontWeight: 'bold',
   },
 });

@@ -17,12 +17,13 @@ import { Database } from '@/lib/supabase';
 
 type Wine = Database['public']['Tables']['wines']['Row'];
 
-const WINE_TYPES = ['all', 'red', 'white', 'rosé', 'sparkling', 'dessert'];
+// Updated: Only red and white wine types
+const WINE_TYPES = ['all', 'red', 'white'];
+
+// Updated: Removed year sorting, kept price sorting
 const SORT_OPTIONS = [
   { label: 'Name A-Z', value: 'name_asc' },
   { label: 'Name Z-A', value: 'name_desc' },
-  { label: 'Year (Newest)', value: 'year_desc' },
-  { label: 'Year (Oldest)', value: 'year_asc' },
   { label: 'Rating (High to Low)', value: 'rating_desc' },
   { label: 'Rating (Low to High)', value: 'rating_asc' },
   { label: 'Price (Low to High)', value: 'price_asc' },
@@ -37,8 +38,40 @@ export default function CollectionScreen() {
   const [sortBy, setSortBy] = useState('name_asc');
   const [showFilters, setShowFilters] = useState(false);
 
+  // Fixed sorting function with debug logs
+  const handleSortChange = (newSortValue: string) => {
+    console.log('=== SORTING DEBUG ===');
+    console.log('Previous sort:', sortBy);
+    console.log('New sort:', newSortValue);
+    console.log('Wines count before sort:', wines.length);
+    
+    // Close modal first
+    setShowFilters(false);
+    
+    // Update sort state
+    setSortBy(newSortValue);
+    
+    console.log('Sort state updated to:', newSortValue);
+  };
+
+  const handleTypeChange = (newType: string) => {
+    console.log('=== TYPE FILTER DEBUG ===');
+    console.log('Previous type:', selectedType);
+    console.log('New type:', newType);
+    
+    setSelectedType(newType);
+    
+    console.log('Type filter updated to:', newType);
+  };
+
   const filteredAndSortedWines = useMemo(() => {
-    let filtered = wines;
+    console.log('=== FILTERING AND SORTING ===');
+    console.log('Total wines:', wines.length);
+    console.log('Search query:', searchQuery);
+    console.log('Selected type:', selectedType);
+    console.log('Sort by:', sortBy);
+
+    let filtered = [...wines]; // Create a copy to avoid mutations
 
     // Apply search filter
     if (searchQuery.trim()) {
@@ -50,24 +83,22 @@ export default function CollectionScreen() {
         wine.type.toLowerCase().includes(query) ||
         wine.food_pairing?.toLowerCase().includes(query)
       );
+      console.log('After search filter:', filtered.length);
     }
 
     // Apply type filter
     if (selectedType !== 'all') {
       filtered = filtered.filter(wine => wine.type === selectedType);
+      console.log('After type filter:', filtered.length);
     }
 
-    // Apply sorting
-    return filtered.sort((a, b) => {
+    // Updated: Apply sorting without year options
+    const sorted = filtered.sort((a, b) => {
       switch (sortBy) {
         case 'name_asc':
           return a.name.localeCompare(b.name);
         case 'name_desc':
           return b.name.localeCompare(a.name);
-        case 'year_desc':
-          return (b.year || 0) - (a.year || 0);
-        case 'year_asc':
-          return (a.year || 0) - (b.year || 0);
         case 'rating_desc':
           return (b.rating || 0) - (a.rating || 0);
         case 'rating_asc':
@@ -82,6 +113,16 @@ export default function CollectionScreen() {
           return 0;
       }
     });
+
+    console.log('After sorting:', sorted.length);
+    console.log('First 3 wines after sort:', sorted.slice(0, 3).map(w => ({
+      name: w.name,
+      type: w.type,
+      rating: w.rating,
+      price: w.price
+    })));
+
+    return sorted;
   }, [wines, searchQuery, selectedType, sortBy]);
 
   const renderWineCard = ({ item }: { item: Wine }) => (
@@ -89,9 +130,25 @@ export default function CollectionScreen() {
   );
 
   const FilterModal = () => (
-    <Modal visible={showFilters} transparent animationType="slide">
-      <View style={styles.modalOverlay}>
-        <View style={styles.modalContent}>
+    <Modal 
+      visible={showFilters} 
+      transparent 
+      animationType="slide"
+      onRequestClose={() => setShowFilters(false)}
+    >
+      <TouchableOpacity 
+        style={styles.modalOverlay}
+        activeOpacity={1}
+        onPress={() => {
+          console.log('Modal overlay pressed - closing');
+          setShowFilters(false);
+        }}
+      >
+        <TouchableOpacity 
+          style={styles.modalContent}
+          activeOpacity={1}
+          onPress={(e) => e.stopPropagation()}
+        >
           <Text style={styles.modalTitle}>Filter & Sort</Text>
           
           <Text style={styles.sectionTitle}>Wine Type</Text>
@@ -103,7 +160,10 @@ export default function CollectionScreen() {
                   styles.typeButton,
                   selectedType === type && styles.typeButtonActive
                 ]}
-                onPress={() => setSelectedType(type)}
+                onPress={() => {
+                  console.log('Type button pressed:', type);
+                  handleTypeChange(type);
+                }}
               >
                 <Text style={[
                   styles.typeButtonText,
@@ -123,7 +183,10 @@ export default function CollectionScreen() {
                 styles.sortOption,
                 sortBy === option.value && styles.sortOptionActive
               ]}
-              onPress={() => setSortBy(option.value)}
+              onPress={() => {
+                console.log('Sort option pressed:', option.value, option.label);
+                handleSortChange(option.value);
+              }}
             >
               <Text style={[
                 styles.sortOptionText,
@@ -136,12 +199,15 @@ export default function CollectionScreen() {
 
           <TouchableOpacity
             style={styles.closeButton}
-            onPress={() => setShowFilters(false)}
+            onPress={() => {
+              console.log('Apply Filters pressed - closing modal');
+              setShowFilters(false);
+            }}
           >
             <Text style={styles.closeButtonText}>Apply Filters</Text>
           </TouchableOpacity>
-        </View>
-      </View>
+        </TouchableOpacity>
+      </TouchableOpacity>
     </Modal>
   );
 
@@ -163,12 +229,18 @@ export default function CollectionScreen() {
             placeholder="Search wines, wineries, regions..."
             placeholderTextColor="#8B5A5F"
             value={searchQuery}
-            onChangeText={setSearchQuery}
+            onChangeText={(text) => {
+              console.log('Search query changed:', text);
+              setSearchQuery(text);
+            }}
           />
         </View>
         <TouchableOpacity
           style={styles.filterButton}
-          onPress={() => setShowFilters(true)}
+          onPress={() => {
+            console.log('Filter button pressed - opening modal');
+            setShowFilters(true);
+          }}
         >
           <SlidersHorizontal size={20} color="#722F37" />
         </TouchableOpacity>
@@ -183,6 +255,9 @@ export default function CollectionScreen() {
             Filtered by: {selectedType}
           </Text>
         )}
+        <Text style={styles.sortIndicator}>
+          Sorted by: {SORT_OPTIONS.find(opt => opt.value === sortBy)?.label || sortBy}
+        </Text>
       </View>
 
       <FlatList
@@ -192,9 +267,12 @@ export default function CollectionScreen() {
         contentContainerStyle={styles.wineList}
         showsVerticalScrollIndicator={false}
         refreshing={loading}
-        onRefresh={() => {}}
+        onRefresh={() => {
+          console.log('Pull to refresh triggered');
+        }}
         numColumns={2}
         columnWrapperStyle={styles.row}
+        extraData={`${sortBy}-${selectedType}-${searchQuery}`} // Force re-render when these change
       />
 
       <FilterModal />
@@ -277,6 +355,12 @@ const styles = StyleSheet.create({
     fontFamily: 'PlayfairDisplay-Italic',
     fontSize: 12,
     color: '#722F37',
+    marginTop: 2,
+  },
+  sortIndicator: {
+    fontFamily: 'PlayfairDisplay-Italic',
+    fontSize: 12,
+    color: '#D4AF37',
     marginTop: 2,
   },
   wineList: {

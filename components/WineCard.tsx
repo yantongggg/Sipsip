@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -6,15 +6,43 @@ import {
   TouchableOpacity,
   Image,
   Dimensions,
+  Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Heart, MapPin, Calendar, Star, DollarSign } from 'lucide-react-native';
-import { LinearGradient } from 'expo-linear-gradient';
+import { Heart } from 'lucide-react-native';
+import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/contexts/AuthContext';
 import { useWine } from '@/contexts/WineContext';
-import { useAuthGuard } from '@/hooks/useAuthGuard';
-import { Database, getWineImageUrl } from '@/lib/supabase';
 
-type Wine = Database['public']['Tables']['wines']['Row'];
+// Fixed image URL function based on your storage structure
+const getWineImageUrl = (imageName: string | null, wineType?: string): string | null => {
+  if (!imageName) return null;
+  
+  // If the imageName already includes the folder path, use it directly
+  if (imageName.includes('/')) {
+    const baseUrl = 'https://gcvtaawcowvtytbsnftq.supabase.co/storage/v1/object/public';
+    return `${baseUrl}/wine-images/${imageName}`;
+  }
+  
+  // Otherwise, determine folder based on wine type
+  const folder = (wineType === 'white') ? 'whitewine_png' : 'redwine_png';
+  const baseUrl = 'https://gcvtaawcowvtytbsnftq.supabase.co/storage/v1/object/public';
+  const imageUrl = `${baseUrl}/wine-images/${folder}/${imageName}`;
+  
+  return imageUrl;
+};
+
+type Wine = {
+  id: string;
+  name: string;
+  type: string;
+  winery?: string;
+  region?: string;
+  year?: number;
+  price?: number;
+  rating?: number;
+  wine_image_name?: string;
+};
 
 interface WineCardProps {
   wine: Wine;
@@ -25,102 +53,113 @@ const cardWidth = (width - 40) / 2;
 
 export default function WineCard({ wine }: WineCardProps) {
   const router = useRouter();
-  const { isWineSaved } = useWine();
-  const { requireAuth } = useAuthGuard();
-  const isSaved = isWineSaved(wine.id);
+  const { user } = useAuth();
+  const { isWineSaved, saveWine, unsaveWine, refreshSavedWines } = useWine();
+  const [isSaved, setIsSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  // Check if wine is saved when component mounts or wine changes
+  useEffect(() => {
+    if (user && wine.id) {
+      const savedStatus = isWineSaved(wine.id);
+      setIsSaved(savedStatus);
+      console.log(`Wine ${wine.name} is saved:`, savedStatus);
+    } else {
+      setIsSaved(false);
+    }
+  }, [wine.id, user, isWineSaved]);
 
   const handlePress = () => {
+    console.log('Wine card pressed:', wine.id);
     router.push({
       pathname: '/wine-details',
       params: { id: wine.id }
     });
   };
 
-  const handleSave = () => {
-    requireAuth(() => {
-      // This will be handled by SaveWineModal
-      console.log('Save wine:', wine.id);
-    });
-  };
+  const handleSave = async () => {
+    console.log('=== SAVE BUTTON PRESSED ===');
+    console.log('Wine:', wine.name);
+    console.log('User:', user?.id);
+    console.log('Currently saved:', isSaved);
 
-  const getTypeColor = (type: string) => {
-    switch (type) {
-      case 'red': return '#722F37';
-      case 'white': return '#F5F5DC';
-      case 'rosé': return '#FFC0CB';
-      case 'sparkling': return '#E6E6FA';
-      case 'dessert': return '#D4AF37';
-      default: return '#722F37';
+    if (!user) {
+      console.log('No user logged in, redirecting to auth');
+      Alert.alert(
+        'Sign In Required',
+        'Please sign in to save wines to your library',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Sign In', onPress: () => router.push('/auth') }
+        ]
+      );
+      return;
+    }
+
+    setSaving(true);
+
+    try {
+      if (isSaved) {
+        // Unsave the wine
+        console.log('Unsaving wine...');
+        const result = await unsaveWine(wine.id);
+        
+        if (result.error) {
+          console.error('Unsave error:', result.error);
+          Alert.alert('Error', 'Failed to remove wine from library');
+        } else {
+          console.log('Wine unsaved successfully');
+          setIsSaved(false);
+          await refreshSavedWines(); // Refresh the library
+        }
+      } else {
+        // Save the wine with basic data
+        console.log('Saving wine...');
+        const saveData = {
+          wine_id: wine.id,
+          rating: null,
+          date_tried: null,
+          location: null,
+          user_notes: null,
+        };
+
+        const result = await saveWine(saveData);
+        
+        if (result.error) {
+          console.error('Save error:', result.error);
+          Alert.alert('Error', 'Failed to save wine to library');
+        } else {
+          console.log('Wine saved successfully');
+          setIsSaved(true);
+          await refreshSavedWines(); // Refresh the library
+        }
+      }
+    } catch (error) {
+      console.error('Save/unsave catch error:', error);
+      Alert.alert('Error', 'An unexpected error occurred');
+    } finally {
+      setSaving(false);
     }
   };
 
-  const renderStars = (rating: number | null) => {
-    if (typeof rating !== 'number' || isNaN(rating)) return null;
-
-    return (
-      <View style={styles.starsContainer}>
-        {[1, 2, 3, 4, 5].map((star) => (
-          <Star
-            key={star}
-            size={10}
-            color="#D4AF37"
-            fill={star <= rating ? '#D4AF37' : 'none'}
-          />
-        ))}
-        <Text style={{ marginLeft: 4, fontSize: 12 }}>
-          ({Number(rating).toFixed(1)}/5)
-        </Text>
-      </View>
-    );
-  };
-
-
-
-  const wineImageUrl = getWineImageUrl(wine.wine_image_name);
+  const wineImageUrl = getWineImageUrl(wine.wine_image_name, wine.type);
   const fallbackImage = 'https://images.pexels.com/photos/434311/pexels-photo-434311.jpeg';
 
   return (
-    <TouchableOpacity onPress={handlePress} style={styles.container}>
-      <View style={styles.card}>
+    <View style={styles.container}>
+      <TouchableOpacity onPress={handlePress} style={styles.card}>
         <Image
-          source={{ uri: wineImageUrl || fallbackImage }}
+          source={{ 
+            uri: wineImageUrl || fallbackImage
+          }}
           style={styles.image}
           resizeMode="cover"
+          onError={() => console.log('Image failed to load:', wineImageUrl)}
         />
         
-        <LinearGradient
-          colors={['transparent', 'rgba(0,0,0,0.8)']}
-          style={styles.gradient}
-        />
-
-        <TouchableOpacity
-          style={styles.heartButton}
-          onPress={handleSave}
-        >
-          <Heart
-            size={18}
-            color={isSaved ? '#D4AF37' : 'white'}
-            fill={isSaved ? '#D4AF37' : 'none'}
-          />
-        </TouchableOpacity>
-
         <View style={styles.content}>
-          <View
-            style={[
-              styles.typeTag,
-              { backgroundColor: getTypeColor(wine.type) }
-            ]}
-          >
-            <Text style={[
-              styles.typeText,
-              { color: wine.type === 'white' ? '#722F37' : 'white' }
-            ]}>
-              {wine.type}
-            </Text>
-          </View>
-
           <Text style={styles.name} numberOfLines={2}>
-            {wine.name}
+            {wine.name || 'Unknown Wine'}
           </Text>
           
           {wine.winery && (
@@ -130,34 +169,44 @@ export default function WineCard({ wine }: WineCardProps) {
           )}
           
           {wine.region && (
-            <View style={styles.locationRow}>
-              <MapPin size={10} color="#F5F5DC" />
-              <Text style={styles.region} numberOfLines={1}>
-                {wine.region}
-              </Text>
-            </View>
+            <Text style={styles.region} numberOfLines={1}>
+              {wine.region}
+            </Text>
           )}
           
           <View style={styles.bottomRow}>
-            {wine.year && (
-              <View style={styles.yearRow}>
-                <Calendar size={10} color="#F5F5DC" />
-                <Text style={styles.year}>{wine.year}</Text>
-              </View>
-            )}
-            
-            {wine.price && (
-              <View style={styles.priceRow}>
-                <DollarSign size={10} color="#D4AF37" />
-                <Text style={styles.price}>${wine.price}</Text>
-              </View>
-            )}
-          </View>
+            <View style={styles.leftInfo}>
+              {wine.year && (
+                <Text style={styles.year}>{wine.year.toString()}</Text>
+              )}
+              
+              {wine.price && (
+                <Text style={styles.price}>
+                  ${wine.price.toString()}
+                </Text>
+              )}
+            </View>
 
-          {wine.rating && renderStars(wine.rating)}
+            {/* Save Button */}
+            <TouchableOpacity
+              style={[
+                styles.saveButton,
+                isSaved && styles.saveButtonActive,
+                saving && styles.saveButtonSaving
+              ]}
+              onPress={handleSave}
+              disabled={saving}
+            >
+              <Heart
+                size={16}
+                color={isSaved ? '#fff' : '#D4AF37'}
+                fill={isSaved ? '#fff' : 'none'}
+              />
+            </TouchableOpacity>
+          </View>
         </View>
-      </View>
-    </TouchableOpacity>
+      </TouchableOpacity>
+    </View>
   );
 }
 
@@ -178,96 +227,67 @@ const styles = StyleSheet.create({
   },
   image: {
     width: '100%',
-    height: 200,
-  },
-  gradient: {
-    position: 'absolute',
-    top: 120,
-    left: 0,
-    right: 0,
-    height: 80,
-  },
-  heartButton: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    backgroundColor: 'rgba(0,0,0,0.3)',
-    borderRadius: 20,
-    padding: 8,
+    height: 160,
   },
   content: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
     padding: 12,
   },
-  typeTag: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 12,
-    marginBottom: 6,
-  },
-  typeText: {
-    fontFamily: 'PlayfairDisplay-Regular',
-    fontSize: 9,
-    fontWeight: '600',
-    textTransform: 'capitalize',
-  },
   name: {
-    fontFamily: 'PlayfairDisplay-Bold',
-    fontSize: 13,
-    color: 'white',
-    marginBottom: 2,
-    lineHeight: 16,
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 4,
+    color: '#722F37',
+    lineHeight: 20,
   },
   winery: {
-    fontFamily: 'PlayfairDisplay-Italic',
-    fontSize: 11,
-    color: '#F5F5DC',
-    marginBottom: 4,
-  },
-  locationRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 4,
+    fontSize: 14,
+    color: '#8B5A5F',
+    marginBottom: 2,
+    fontStyle: 'italic',
   },
   region: {
-    fontFamily: 'PlayfairDisplay-Regular',
-    fontSize: 10,
-    color: '#F5F5DC',
-    marginLeft: 4,
-    flex: 1,
+    fontSize: 12,
+    color: '#888',
+    marginBottom: 8,
   },
   bottomRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 4,
   },
-  yearRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  leftInfo: {
+    flex: 1,
   },
   year: {
-    fontFamily: 'PlayfairDisplay-Regular',
-    fontSize: 10,
-    color: '#F5F5DC',
-    marginLeft: 4,
-  },
-  priceRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    fontSize: 12,
+    color: '#888',
+    marginBottom: 2,
   },
   price: {
-    fontFamily: 'PlayfairDisplay-Bold',
-    fontSize: 10,
+    fontSize: 14,
+    fontWeight: 'bold',
     color: '#D4AF37',
-    marginLeft: 2,
   },
-  starsContainer: {
-    flexDirection: 'row',
+  saveButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#FFF8E1',
+    borderWidth: 1,
+    borderColor: '#D4AF37',
+    justifyContent: 'center',
     alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  saveButtonActive: {
+    backgroundColor: '#D4AF37',
+    borderColor: '#D4AF37',
+  },
+  saveButtonSaving: {
+    opacity: 0.6,
   },
 });

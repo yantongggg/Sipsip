@@ -15,6 +15,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { X, Wine, Eye, EyeOff } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/lib/supabase';
 
 export default function AuthScreen() {
   const router = useRouter();
@@ -40,6 +41,8 @@ export default function AuthScreen() {
       newErrors.username = 'Username is required';
     } else if (username.length < 3) {
       newErrors.username = 'Username must be at least 3 characters';
+    } else if (!/^[a-zA-Z0-9_]+$/.test(username)) {
+      newErrors.username = 'Username can only contain letters, numbers, and underscores';
     }
 
     if (!isLogin && !email.trim()) {
@@ -65,27 +68,79 @@ export default function AuthScreen() {
   };
 
   const handleSubmit = async () => {
-    if (!validateForm()) return;
+    console.log('=== AUTH SUBMIT ===');
+    console.log('Mode:', isLogin ? 'Login' : 'Register');
+    console.log('Username:', username);
+    console.log('Email:', email);
+    
+    if (!validateForm()) {
+      console.log('Form validation failed:', errors);
+      return;
+    }
 
     setLoading(true);
     try {
       let result;
       
       if (isLogin) {
+        console.log('Attempting login...');
         result = await signIn(username, password);
       } else {
+        console.log('Attempting registration...');
         result = await signUp(username, email, password);
       }
 
+      console.log('Auth result:', result);
+
       if (result.error) {
+        console.log('Auth error:', result.error);
         Alert.alert('Error', result.error);
       } else {
-        router.back();
+        console.log('Auth successful, navigating back...');
+        // Small delay to ensure state updates
+        setTimeout(() => {
+          router.back();
+        }, 100);
       }
     } catch (error) {
+      console.error('Auth catch error:', error);
       Alert.alert('Error', 'An unexpected error occurred');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleChangePassword = async (currentPassword: string, newPassword: string) => {
+    console.log('=== CHANGE PASSWORD ===');
+    
+    try {
+      // First, verify current password by attempting to sign in
+      const { error: verifyError } = await supabase.auth.signInWithPassword({
+        email: `${username}@sipmate.app`, // Using your current auth pattern
+        password: currentPassword,
+      });
+
+      if (verifyError) {
+        throw new Error('Current password is incorrect');
+      }
+
+      // Update password
+      const { error: updateError } = await supabase.auth.updateUser({
+        password: newPassword
+      });
+
+      if (updateError) {
+        throw new Error(updateError.message);
+      }
+
+      console.log('Password updated successfully');
+      return { success: true };
+    } catch (error) {
+      console.error('Password change error:', error);
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Failed to change password' 
+      };
     }
   };
 
@@ -100,8 +155,14 @@ export default function AuthScreen() {
   };
 
   const switchMode = () => {
+    console.log('Switching auth mode from', isLogin ? 'login' : 'register', 'to', !isLogin ? 'login' : 'register');
     setIsLogin(!isLogin);
     resetForm();
+  };
+
+  const handleClose = () => {
+    console.log('Closing auth screen');
+    router.back();
   };
 
   return (
@@ -112,7 +173,7 @@ export default function AuthScreen() {
       >
         <TouchableOpacity
           style={styles.closeButton}
-          onPress={() => router.back()}
+          onPress={handleClose}
         >
           <X size={24} color="white" />
         </TouchableOpacity>
@@ -149,11 +210,17 @@ export default function AuthScreen() {
                 errors.username && styles.inputError
               ]}
               value={username}
-              onChangeText={setUsername}
+              onChangeText={(text) => {
+                setUsername(text.toLowerCase().trim());
+                if (errors.username) {
+                  setErrors(prev => ({ ...prev, username: '' }));
+                }
+              }}
               placeholder="Enter your username"
               placeholderTextColor="#8B5A5F"
               autoCapitalize="none"
               autoCorrect={false}
+              maxLength={20}
             />
             {errors.username && (
               <Text style={styles.errorText}>{errors.username}</Text>
@@ -170,7 +237,12 @@ export default function AuthScreen() {
                   errors.email && styles.inputError
                 ]}
                 value={email}
-                onChangeText={setEmail}
+                onChangeText={(text) => {
+                  setEmail(text.toLowerCase().trim());
+                  if (errors.email) {
+                    setErrors(prev => ({ ...prev, email: '' }));
+                  }
+                }}
                 placeholder="Enter your email"
                 placeholderTextColor="#8B5A5F"
                 keyboardType="email-address"
@@ -193,7 +265,12 @@ export default function AuthScreen() {
                   errors.password && styles.inputError
                 ]}
                 value={password}
-                onChangeText={setPassword}
+                onChangeText={(text) => {
+                  setPassword(text);
+                  if (errors.password) {
+                    setErrors(prev => ({ ...prev, password: '' }));
+                  }
+                }}
                 placeholder="Enter your password"
                 placeholderTextColor="#8B5A5F"
                 secureTextEntry={!showPassword}
@@ -227,7 +304,12 @@ export default function AuthScreen() {
                     errors.confirmPassword && styles.inputError
                   ]}
                   value={confirmPassword}
-                  onChangeText={setConfirmPassword}
+                  onChangeText={(text) => {
+                    setConfirmPassword(text);
+                    if (errors.confirmPassword) {
+                      setErrors(prev => ({ ...prev, confirmPassword: '' }));
+                    }
+                  }}
                   placeholder="Confirm your password"
                   placeholderTextColor="#8B5A5F"
                   secureTextEntry={!showConfirmPassword}
@@ -268,6 +350,15 @@ export default function AuthScreen() {
             </Text>
           </TouchableOpacity>
 
+          {/* Test Account Info */}
+          {isLogin && (
+            <View style={styles.testAccountInfo}>
+              <Text style={styles.testAccountTitle}>Test Account</Text>
+              <Text style={styles.testAccountText}>Username: test</Text>
+              <Text style={styles.testAccountText}>Password: password123</Text>
+            </View>
+          )}
+
           {/* Switch Mode */}
           <View style={styles.switchContainer}>
             <Text style={styles.switchText}>
@@ -301,6 +392,7 @@ const styles = StyleSheet.create({
     top: 50,
     right: 20,
     zIndex: 1,
+    padding: 8,
   },
   headerContent: {
     alignItems: 'center',
@@ -406,11 +498,30 @@ const styles = StyleSheet.create({
     color: 'white',
     textAlign: 'center',
   },
+  testAccountInfo: {
+    backgroundColor: '#FFF8E1',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 20,
+    borderLeftWidth: 4,
+    borderLeftColor: '#D4AF37',
+  },
+  testAccountTitle: {
+    fontFamily: 'PlayfairDisplay-Bold',
+    fontSize: 14,
+    color: '#722F37',
+    marginBottom: 4,
+  },
+  testAccountText: {
+    fontFamily: 'PlayfairDisplay-Regular',
+    fontSize: 12,
+    color: '#8B5A5F',
+  },
   switchContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    paddingBottom: 20,
+    paddingBottom: 30,
   },
   switchText: {
     fontFamily: 'PlayfairDisplay-Regular',
